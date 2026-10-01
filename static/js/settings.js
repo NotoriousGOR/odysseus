@@ -3967,9 +3967,11 @@ async function initUnifiedIntegrations() {
       <div class="admin-card" style="margin-top:8px">
         <h2 style="font-size:13px;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent, var(--red));flex-shrink:0;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Contacts (CardDAV)</h2>
         <div class="settings-col">
-          <div class="settings-row"><label class="settings-label">URL</label><input id="uf-carddav-url" class="settings-input" placeholder="http://localhost:5232/user/contacts/"></div>
-          <div class="settings-row"><label class="settings-label">Username</label><input id="uf-carddav-user" class="settings-input"></div>
-          <div class="settings-row"><label class="settings-label">Password</label><input id="uf-carddav-pass" class="settings-input" type="password"></div>
+          <div class="settings-row"><label class="settings-label">Sign-in</label><select id="uf-carddav-auth" class="settings-input"><option value="">Username &amp; password</option></select></div>
+          <div class="settings-row" id="uf-carddav-google-row" style="display:none"><label class="settings-label"></label><a id="uf-carddav-grant" class="settings-input" style="border:none;color:var(--accent, var(--red))">Grant contacts access (once)</a></div>
+          <div class="settings-row uf-carddav-basic"><label class="settings-label">URL</label><input id="uf-carddav-url" class="settings-input" placeholder="http://localhost:5232/user/contacts/"></div>
+          <div class="settings-row uf-carddav-basic"><label class="settings-label">Username</label><input id="uf-carddav-user" class="settings-input"></div>
+          <div class="settings-row uf-carddav-basic"><label class="settings-label">Password</label><input id="uf-carddav-pass" class="settings-input" type="password"></div>
           <div class="settings-row" style="margin-top:10px;align-items:center;justify-content:flex-end;gap:6px;">
             <span id="uf-carddav-msg" style="font-size:11px;flex:1;margin-right:8px"></span>
             <button class="admin-btn-add" id="uf-carddav-save" style="display:inline-flex;align-items:center;gap:5px;background:transparent;color:var(--accent, var(--red));border-color:color-mix(in srgb, var(--accent, var(--red)) 45%, var(--border));font-weight:600;">
@@ -4002,21 +4004,42 @@ async function initUnifiedIntegrations() {
         <input type="text" id="cm-search" class="settings-input" placeholder="Search contacts (name, email, phone, address)" style="margin-top:6px;">
         <div id="cm-list" class="contacts-list"><div style="opacity:0.4;font-size:11px;padding:8px 2px;">Loading…</div></div>
       </div>`;
+    // Google rejects app passwords on CardDAV (#4908); reuse a Google-OAuth
+    // email account's sign-in instead, same as the CalDAV form.
+    const cdAuth = el('uf-carddav-auth');
+    try {
+      const r = await fetch('/api/email/accounts', { credentials: 'same-origin' });
+      const d = await r.json();
+      (d.accounts || []).filter(a => a.oauth_provider === 'google').forEach(a => {
+        cdAuth.add(new Option(`Google sign-in — ${a.imap_user || a.name}`, a.id));
+      });
+    } catch (_) {}
+    const _syncCardDavAuth = () => {
+      const gid = cdAuth.value;
+      formEl.querySelectorAll('.uf-carddav-basic').forEach(r => { r.style.display = gid ? 'none' : ''; });
+      el('uf-carddav-google-row').style.display = gid ? '' : 'none';
+      el('uf-carddav-grant').href = gid ? `/api/email/oauth/google/authorize?account_id=${encodeURIComponent(gid)}&contacts=1` : '#';
+    };
+    cdAuth.addEventListener('change', _syncCardDavAuth);
     try {
       const r = await fetch('/api/contacts/config', { credentials: 'same-origin' }); const d = await r.json();
       el('uf-carddav-url').value = d.url || ''; el('uf-carddav-user').value = d.username || '';
+      if (d.google_account_id) cdAuth.value = d.google_account_id;
       // Server masks the password as '***' when one is saved (or '' when
       // none). Surface that state via the input's placeholder so users
       // can tell their password is already on file without us echoing it.
       const passInput = el('uf-carddav-pass');
       if (passInput && d.password) passInput.placeholder = '(unchanged)';
     } catch (_) {}
+    _syncCardDavAuth();
     el('uf-carddav-cancel').addEventListener('click', () => { formEl.style.display = 'none'; });
     el('uf-carddav-save').addEventListener('click', async () => {
-      const body = { carddav_url: el('uf-carddav-url').value, carddav_username: el('uf-carddav-user').value };
-      if (el('uf-carddav-pass').value) body.carddav_password = el('uf-carddav-pass').value;
+      const body = cdAuth.value ? { carddav_google_account_id: cdAuth.value }
+        : { carddav_google_account_id: '', carddav_url: el('uf-carddav-url').value, carddav_username: el('uf-carddav-user').value };
+      if (!cdAuth.value && el('uf-carddav-pass').value) body.carddav_password = el('uf-carddav-pass').value;
       try {
-        await fetch('/api/contacts/config', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const resp = await fetch('/api/contacts/config', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!resp.ok) throw new Error();
         el('uf-carddav-msg').textContent = 'Saved';
         el('uf-carddav-msg').style.color = 'var(--green, #50fa7b)';
         // Refresh both the sub-panel (contacts manager) AND the

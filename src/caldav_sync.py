@@ -263,23 +263,11 @@ def _google_access_token(email_account_id: str, owner: str) -> str:
     Ownership is re-checked here, not only at link time, because the link lives
     in user-editable prefs.
     """
-    from core.database import EmailAccount, SessionLocal
     from routes.calendar_routes import FALLBACK_OWNER
-    from routes.email_helpers import _account_visible_to_owner, _get_valid_google_token
+    from routes.email_helpers import google_oauth_token
 
     # Calendar rows use FALLBACK_OWNER in single-user mode; email rows use "".
-    email_owner = "" if owner == FALLBACK_OWNER else owner
-    db = SessionLocal()
-    try:
-        row = db.get(EmailAccount, email_account_id)
-        if row is None or row.oauth_provider != "google":
-            return ""
-        if email_owner and not _account_visible_to_owner(row, email_owner):
-            return ""
-        cfg = {"oauth_access_token": row.oauth_access_token, "oauth_token_expiry": row.oauth_token_expiry}
-    finally:
-        db.close()
-    return _get_valid_google_token(email_account_id, cfg) or ""
+    return google_oauth_token(email_account_id, "" if owner == FALLBACK_OWNER else owner)
 
 
 def caldav_credentials(acc: dict, owner: str) -> tuple[str, str, str, str | None]:

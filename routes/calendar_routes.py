@@ -830,16 +830,8 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
 
     def _google_caldav_target(request: Request, email_account_id: str) -> tuple[str, str]:
         """Validate a caller-owned Google-OAuth email account; return its CalDAV (url, username)."""
-        from core.database import EmailAccount
-        from routes.email_helpers import _assert_owns_account
-        _assert_owns_account(email_account_id, require_user(request))
-        db = SessionLocal()
-        try:
-            row = db.get(EmailAccount, email_account_id)
-            ok = row is not None and row.oauth_provider == "google"
-            email = ((row.imap_user or row.from_address or "").strip() if ok else "")
-        finally:
-            db.close()
+        from routes.email_helpers import google_oauth_email
+        email = google_oauth_email(email_account_id, require_user(request))
         if not email:
             raise HTTPException(400, "Pick an email account connected with Google sign-in")
         return f"https://apidata.googleusercontent.com/caldav/v2/{email}/user", email
