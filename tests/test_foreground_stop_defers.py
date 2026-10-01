@@ -26,5 +26,5 @@ def test_foreground_stop_tags_task_for_deferral(monkeypatch):
     stopped = asyncio.run(sched.stop_background_tasks_for_foreground(reason="heartbeat"))
 
     assert stopped == 2 and handle.cancelled
-    assert sched._foreground_stopped == {"t1"}
+    assert sched._foreground_stopped() == {"t1"}
     assert messages == ["Paused because Odysseus became active"]
