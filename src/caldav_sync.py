@@ -270,13 +270,34 @@ def _google_access_token(email_account_id: str, owner: str) -> str:
     return google_oauth_token(email_account_id, "" if owner == FALLBACK_OWNER else owner)
 
 
+def google_legacy_caldav_url(email: str) -> str:
+    """Legacy Google CalDAV principal, the endpoint that still accepts app passwords."""
+    return f"https://www.google.com/calendar/dav/{email}/user"
+
+
+def _gmail_app_password(email_account_id: str, owner: str) -> tuple[str, str] | None:
+    """(address, app password) from a linked Gmail app-password account, or None."""
+    from routes.calendar_routes import FALLBACK_OWNER
+    from routes.email_helpers import gmail_app_password
+
+    return gmail_app_password(email_account_id, "" if owner == FALLBACK_OWNER else owner)
+
+
 def caldav_credentials(acc: dict, owner: str) -> tuple[str, str, str, str | None]:
-    """Resolve a saved account to (url, username, secret, auth_type)."""
+    """Resolve a saved account to (url, username, secret, auth_type).
+
+    A `google_account_id` link authenticates with the linked email account:
+    its app password (Gmail set up without Google sign-in) or its OAuth token.
+    """
     from src.secret_storage import decrypt
 
     url = (acc.get("url") or "").strip()
     user = (acc.get("username") or "").strip()
     if acc.get("google_account_id"):
+        app_login = _gmail_app_password(acc["google_account_id"], owner)
+        if app_login:
+            email, password = app_login
+            return google_legacy_caldav_url(email), email, password, None
         return url, user, _google_access_token(acc["google_account_id"], owner), "bearer"
     pw = acc.get("password") or ""
     try:

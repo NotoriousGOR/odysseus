@@ -184,6 +184,33 @@ def google_oauth_token(account_id: str, owner: str) -> str:
     return (_get_valid_google_token(account_id, acc) or "") if acc else ""
 
 
+def gmail_app_password(account_id: str, owner: str) -> tuple[str, str] | None:
+    """(address, app password) of a Gmail account set up with an app password.
+
+    Google's legacy CalDAV endpoint accepts these (only the v2 one rejects
+    them), so CalDAV can reuse the mailbox credentials instead of asking for
+    them again. Google-OAuth accounts are excluded: they go through
+    `google_oauth_token`.
+    """
+    from core.database import SessionLocal as _SL, EmailAccount as _EA
+    db = _SL()
+    try:
+        row = db.get(_EA, account_id)
+        if row is None or row.oauth_provider == "google":
+            return None
+        if (row.imap_host or "").strip().lower() != "imap.gmail.com":
+            return None
+        if owner and not _account_visible_to_owner(row, owner):
+            return None
+        email = (row.imap_user or row.from_address or "").strip()
+        password = _decrypt(row.imap_password or "")
+        if not (email and password):
+            return None
+        return email, password
+    finally:
+        db.close()
+
+
 def _smtp_security_mode(cfg: dict) -> str:
     raw = str(cfg.get("smtp_security") or "").strip().lower()
     if raw in {"ssl", "starttls", "none"}:

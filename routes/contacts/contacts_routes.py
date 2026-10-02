@@ -63,11 +63,15 @@ _GOOGLE_CARDDAV_URL = "https://www.googleapis.com/carddav/v1/principals/{}/lists
 
 
 def _carddav_auth(cfg: Dict):
-    """httpx auth for the CardDAV server. Google rejects passwords (#4908), so
-    a config linked to a Google-sign-in email account sends its bearer token.
+    """httpx auth for the CardDAV server. A config linked to a Google email
+    account authenticates as that account: with its app password when it is a
+    Gmail account set up with one, otherwise with its bearer token (#4908).
     The link is admin-only global config, validated when saved."""
     if cfg.get("google_account_id"):
-        from routes.email_helpers import google_oauth_token
+        from routes.email_helpers import gmail_app_password, google_oauth_token
+        app_login = gmail_app_password(cfg["google_account_id"], "")
+        if app_login:
+            return app_login
         token = google_oauth_token(cfg["google_account_id"], "")
 
         def bearer(request):
@@ -891,11 +895,15 @@ def setup_contacts_routes():
         if "carddav_google_account_id" in data:
             gid = str(data["carddav_google_account_id"] or "").strip()
             if gid:
-                from routes.email_helpers import google_oauth_email
+                from routes.email_helpers import gmail_app_password, google_oauth_email
                 from src.auth_helpers import require_user
-                email = google_oauth_email(gid, require_user(request))
+                owner = require_user(request)
+                email = google_oauth_email(gid, owner)
                 if not email:
-                    raise HTTPException(400, "Pick an email account connected with Google sign-in")
+                    app_login = gmail_app_password(gid, owner)
+                    email = app_login[0] if app_login else ""
+                if not email:
+                    raise HTTPException(400, "Pick a Gmail account (app password or Google sign-in)")
                 settings.update(carddav_google_account_id=gid, carddav_password="",
                                 carddav_url=_GOOGLE_CARDDAV_URL.format(email), carddav_username=email)
                 data = {}
