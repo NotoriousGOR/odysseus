@@ -14,6 +14,9 @@ class _Handle:
     def cancel(self):
         self.cancelled = True
 
+    def cancelling(self):
+        return 0
+
 
 def test_foreground_stop_tags_task_for_deferral(monkeypatch):
     sched = TaskScheduler(session_manager=None)
