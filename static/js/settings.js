@@ -3437,20 +3437,29 @@ async function initUnifiedIntegrations() {
         </div>
       </div>`;
 
-    // Google rejects app passwords on CalDAV (#4908); Google-OAuth email
-    // accounts can be reused as a bearer-token sign-in instead.
+    // Google rejects app passwords on its v2 CalDAV endpoint (#4908), so
+    // Google-OAuth email accounts are reused as a bearer-token sign-in. Gmail
+    // accounts set up with an app password are reused as-is: the legacy
+    // endpoint still accepts it, so nothing has to be typed again.
     const authSel = el('uf-caldav-auth');
+    const oauthIds = new Set();
     try {
       const r = await fetch('/api/email/accounts', { credentials: 'same-origin' });
       const d = await r.json();
-      (d.accounts || []).filter(a => a.oauth_provider === 'google').forEach(a => {
-        authSel.add(new Option(`Google sign-in — ${a.imap_user || a.name}`, a.id));
+      (d.accounts || []).forEach(a => {
+        const who = a.imap_user || a.name;
+        if (a.oauth_provider === 'google') {
+          oauthIds.add(a.id);
+          authSel.add(new Option(`Google sign-in — ${who}`, a.id));
+        } else if ((a.imap_host || '').toLowerCase() === 'imap.gmail.com' && a.has_imap_password) {
+          authSel.add(new Option(`Gmail app password (${who})`, a.id));
+        }
       });
     } catch (_) {}
     const _syncCalDavAuth = () => {
       const gid = authSel.value;
       formEl.querySelectorAll('.uf-caldav-basic').forEach(r => { r.style.display = gid ? 'none' : ''; });
-      el('uf-caldav-google-row').style.display = gid ? '' : 'none';
+      el('uf-caldav-google-row').style.display = oauthIds.has(gid) ? '' : 'none';
       el('uf-caldav-grant').href = gid ? `/api/email/oauth/google/authorize?account_id=${encodeURIComponent(gid)}&calendar=1` : '#';
     };
     authSel.addEventListener('change', _syncCalDavAuth);
@@ -3595,20 +3604,27 @@ async function initUnifiedIntegrations() {
         <input type="text" id="cm-search" class="settings-input" placeholder="Search contacts (name, email, phone, address)" style="margin-top:6px;">
         <div id="cm-list" class="contacts-list"><div style="opacity:0.4;font-size:11px;padding:8px 2px;">Loading…</div></div>
       </div>`;
-    // Google rejects app passwords on CardDAV (#4908); reuse a Google-OAuth
-    // email account's sign-in instead, same as the CalDAV form.
+    // Reuse a Google email account's sign-in, same as the CalDAV form: its
+    // OAuth token, or the app password of a Gmail account set up with one.
     const cdAuth = el('uf-carddav-auth');
+    const cdOauthIds = new Set();
     try {
       const r = await fetch('/api/email/accounts', { credentials: 'same-origin' });
       const d = await r.json();
-      (d.accounts || []).filter(a => a.oauth_provider === 'google').forEach(a => {
-        cdAuth.add(new Option(`Google sign-in — ${a.imap_user || a.name}`, a.id));
+      (d.accounts || []).forEach(a => {
+        const who = a.imap_user || a.name;
+        if (a.oauth_provider === 'google') {
+          cdOauthIds.add(a.id);
+          cdAuth.add(new Option(`Google sign-in — ${who}`, a.id));
+        } else if ((a.imap_host || '').toLowerCase() === 'imap.gmail.com' && a.has_imap_password) {
+          cdAuth.add(new Option(`Gmail app password (${who})`, a.id));
+        }
       });
     } catch (_) {}
     const _syncCardDavAuth = () => {
       const gid = cdAuth.value;
       formEl.querySelectorAll('.uf-carddav-basic').forEach(r => { r.style.display = gid ? 'none' : ''; });
-      el('uf-carddav-google-row').style.display = gid ? '' : 'none';
+      el('uf-carddav-google-row').style.display = cdOauthIds.has(gid) ? '' : 'none';
       el('uf-carddav-grant').href = gid ? `/api/email/oauth/google/authorize?account_id=${encodeURIComponent(gid)}&contacts=1` : '#';
     };
     cdAuth.addEventListener('change', _syncCardDavAuth);

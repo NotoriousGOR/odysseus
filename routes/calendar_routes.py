@@ -966,12 +966,21 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         _save_for_user(owner, prefs)
 
     def _google_caldav_target(request: Request, email_account_id: str) -> tuple[str, str]:
-        """Validate a caller-owned Google-OAuth email account; return its CalDAV (url, username)."""
-        from routes.email_helpers import google_oauth_email
-        email = google_oauth_email(email_account_id, require_user(request))
-        if not email:
-            raise HTTPException(400, "Pick an email account connected with Google sign-in")
-        return f"https://apidata.googleusercontent.com/caldav/v2/{email}/user", email
+        """Validate a caller-owned Google email account; return its CalDAV (url, username).
+
+        Google-OAuth accounts use the v2 endpoint; Gmail accounts set up with an
+        app password use the legacy one, the only endpoint that accepts it.
+        """
+        from routes.email_helpers import google_oauth_email, gmail_app_password
+        from src.caldav_sync import google_legacy_caldav_url
+        owner = require_user(request)
+        email = google_oauth_email(email_account_id, owner)
+        if email:
+            return f"https://apidata.googleusercontent.com/caldav/v2/{email}/user", email
+        app_login = gmail_app_password(email_account_id, owner)
+        if app_login:
+            return google_legacy_caldav_url(app_login[0]), app_login[0]
+        raise HTTPException(400, "Pick a Gmail account (app password or Google sign-in)")
 
     # ── CalDAV config routes (backward-compat single-account API) ────────────
 
@@ -1151,10 +1160,10 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         auth_type = None
         google_id = (body.get("google_account_id") or "").strip()
         if google_id:
-            from src.caldav_sync import _google_access_token
+            from src.caldav_sync import caldav_credentials
             url, user = _google_caldav_target(request, google_id)
-            pw = await asyncio.to_thread(_google_access_token, google_id, owner)
-            auth_type = "bearer"
+            link = {"url": url, "username": user, "google_account_id": google_id}
+            url, user, pw, auth_type = await asyncio.to_thread(caldav_credentials, link, owner)
         elif not (url and user and pw):
             # Look up a saved account: by id if supplied, else first account.
             accounts = _get_caldav_accounts(owner)
